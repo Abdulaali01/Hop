@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>تقرير صور مخفي</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    body{
+      margin:0;
+      background:#eee;
+      font-family:Tahoma, Arial, sans-serif;
+    }
+
+    .topbar{
+      background:#111;
+      color:#fff;
+      padding:10px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    .topbar button{
+      padding:8px 14px;
+      border:none;
+      border-radius:6px;
+      cursor:pointer;
+      font-family:inherit;
+    }
+
+    .counter{
+      background:#2563eb;
+      color:#fff;
+      padding:6px 12px;
+      border-radius:6px;
+      font-weight:bold;
+    }
+
+    .page{
+      width:210mm;
+      min-height:297mm;
+      background:#fff;
+      margin:10mm auto;
+      padding:10mm;
+      box-sizing:border-box;
+      border:1px solid #000;
+    }
+
+    .box{
+      width:100%;
+      height:180mm;
+      border:1px solid #000;
+      position:relative;
+      background:#fafafa;
+      overflow:hidden;
+    }
+
+    .num{
+      position:absolute;
+      top:4mm;
+      right:4mm;
+      background:#000;
+      color:#fff;
+      padding:3mm 5mm;
+      z-index:5;
+      font-size:16px;
+      font-weight:bold;
+    }
+
+    .history-badge{
+      position:absolute;
+      top:4mm;
+      left:4mm;
+      background:#dc2626;
+      color:#fff;
+      padding:2mm 4mm;
+      z-index:5;
+      font-size:12px;
+      border-radius:4px;
+      display:none;
+    }
+
+    .add{
+      position:absolute;
+      bottom:4mm;
+      left:4mm;
+      width:14mm;
+      height:14mm;
+      border-radius:50%;
+      background:#2563eb;
+      color:#fff;
+      text-align:center;
+      line-height:14mm;
+      cursor:pointer;
+      z-index:5;
+      user-select:none;
+      font-weight:bold;
+      font-size:20px;
+    }
+
+    .edit{
+      position:absolute;
+      bottom:4mm;
+      right:4mm;
+      background:#16a34a;
+      color:#fff;
+      padding:3mm 6mm;
+      font-size:14px;
+      cursor:pointer;
+      z-index:5;
+      user-select:none;
+      border-radius:4px;
+    }
+
+    .status{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      color:#666;
+      font-size:18px;
+      padding:20px;
+      box-sizing:border-box;
+    }
+
+    .picker{
+      position:absolute;
+      bottom:20mm;
+      left:4mm;
+      background:#fff;
+      border:1px solid #000;
+      display:none;
+      z-index:20;
+      min-width:120px;
+      box-shadow:0 2px 8px rgba(0,0,0,.15);
+    }
+
+    .picker button{
+      display:block;
+      width:100%;
+      border:none;
+      padding:10px 12px;
+      cursor:pointer;
+      background:#fff;
+      text-align:right;
+      font-family:inherit;
+      font-size:14px;
+    }
+
+    .picker button:hover{
+      background:#f3f4f6;
+    }
+
+    .note-editor{
+      position:absolute;
+      inset:0;
+      background:#fff;
+      display:none;
+      flex-direction:column;
+      padding:15px;
+      z-index:30;
+      box-sizing:border-box;
+    }
+
+    .note-editor textarea{
+      flex:1;
+      resize:none;
+      font-family:inherit;
+      font-size:16px;
+      line-height:1.6;
+    }
+
+    .note-actions{
+      display:flex;
+      gap:10px;
+      margin-top:10px;
+    }
+
+    .note-actions button{
+      padding:10px 16px;
+      cursor:pointer;
+      font-family:inherit;
+      font-size:14px;
+    }
+
+    input[type="file"]{
+      display:none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="counter" id="counter">السجلات: 0</div>
+    <button onclick="exportPDF()">🖨️ PDF</button>
+    <button onclick="exportExcel()">📊 Excel</button>
+    <button onclick="clearScreen()">🗑️ مسح الشاشة</button>
+    <button onclick="clearAllData()">❌ حذف كل البيانات</button>
+  </div>
+
+  <div class="page">
+    <div class="box" id="box1">
+      <div class="num">1</div>
+      <div class="history-badge" id="badge1"></div>
+      <div class="status" id="status1">لا توجد صورة محفوظة</div>
+      <div class="add" onclick="openPicker(event,1)">+</div>
+      <div class="edit" onclick="openEditor(event,1)">✏️</div>
+      <div class="picker" id="picker1">
+        <button onclick="openFile(1,0)">📷 كاميرا</button>
+        <button onclick="openFile(1,1)">🖼️ استديو</button>
+      </div>
+      <div class="note-editor" id="editor1">
+        <textarea id="note1" placeholder="اكتب الملاحظة هنا..."></textarea>
+        <div class="note-actions">
+          <button onclick="saveNote(1)">💾 حفظ</button>
+          <button onclick="closeEditor(1)">إغلاق</button>
+        </div>
+      </div>
+      <input id="cam1" type="file" accept="image/*" capture="environment" onchange="loadImg(1,this)">
+      <input id="gal1" type="file" accept="image/*" onchange="loadImg(1,this)">
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "hidden_report_box_history_v8";
+    let screenData = {};
+    const boxId = 1;
+
+    function getStoredData(){
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    }
+
+    function saveBoxRecord(record){
+      const stored = getStoredData();
+      if(!stored[boxId]){
+        stored[boxId] = [];
+      }
+      stored[boxId].push(record);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    }
+
+    function getBoxRecords(){
+      const stored = getStoredData();
+      return stored[boxId] || [];
+    }
+
+    function getAllRecords(){
+      const stored = getStoredData();
+      let all = [];
+      if(stored[boxId]){
+        all = all.concat(stored[boxId]);
+      }
+      return all;
+    }
+
+    function updateCounter(){
+      const all = getAllRecords();
+      document.getElementById("counter").textContent = "السجلات: " + all.length;
+
+      const badge = document.getElementById("badge1");
+      const count = getBoxRecords().length;
+      if(count > 0){
+        badge.style.display = "block";
+        badge.textContent = count + " سجل";
+      } else {
+        badge.style.display = "none";
+      }
+    }
+
+    function getBoxStateText(){
+      if(screenData[boxId] && screenData[boxId].img){
+        return "تم حفظ صورة وبيانات هذه الخانة";
+      }
+      return "لا توجد صورة محفوظة";
+    }
+
+    function refreshStatus(){
+      const el = document.getElementById("status1");
+      if(el){
+        el.textContent = getBoxStateText();
+      }
+    }
+
+    function hideAllPickers(){
+      document.querySelectorAll(".picker").forEach(p => p.style.display = "none");
+    }
+
+    function openPicker(e,i){
+      e.stopPropagation();
+      hideAllPickers();
+      document.getElementById("picker"+i).style.display = "block";
+    }
+
+    function openFile(i,n){
+      document.getElementById("picker"+i).style.display = "none";
+      if(n===0){
+        document.getElementById("cam"+i).click();
+      }else{
+        document.getElementById("gal"+i).click();
+      }
+    }
+
+    function openEditor(e,i){
+      e.stopPropagation();
+      hideAllPickers();
+      document.getElementById("editor"+i).style.display = "flex";
+      document.getElementById("note"+i).value = (screenData[i] && screenData[i].note) ? screenData[i].note : "";
+    }
+
+    function closeEditor(i){
+      document.getElementById("editor"+i).style.display = "none";
+    }
+
+    function saveNote(i){
+      const noteText = document.getElementById("note"+i).value || "";
+
+      if(!screenData[i]){
+        screenData[i] = { lat:"", lng:"", date:"", img:"", note:"" };
+      }
+      screenData[i].note = noteText;
+
+      if(screenData[i].img){
+        const stored = getStoredData();
+        if(stored[i] && stored[i].length > 0){
+          stored[i][stored[i].length - 1].note = noteText;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+        }
+      }
+
+      closeEditor(i);
+      refreshStatus();
+      updateCounter();
+    }
+
+    function loadImg(i,input){
+      const file = input.files && input.files[0];
+      if(!file) return;
+
+      const now = new Date();
+      const dateText = now.toLocaleString("ar-SA");
+
+      function finishWithCoords(lat,lng){
+        const reader = new FileReader();
+        reader.onload = function(e){
+          const img = new Image();
+          img.onload = function(){
+            const canvas = document.createElement("canvas");
+            const maxWidth = 1200;
+            let width = img.naturalWidth || img.width;
+            let height = img.naturalHeight || img.height;
+
+            if(width > maxWidth){
+              height = (maxWidth / width) * height;
+              width = maxWidth;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const barHeight = Math.min(120, Math.round(height * 0.12));
+            ctx.fillStyle = "rgba(0,0,0,0.88)";
+            ctx.fillRect(0, height - barHeight, width, barHeight);
+
+            const fontSize = Math.max(22, Math.round(width * 0.025));
+            const smallFont = Math.max(16, Math.round(width * 0.018));
+
+            ctx.fillStyle = "#fff";
+            ctx.textBaseline = "top";
+
+            ctx.font = "bold " + fontSize + "px Arial";
+            ctx.fillText("LAT: " + lat, 20, height - barHeight + 12);
+            ctx.fillText("LNG: " + lng, 20, height - barHeight + 12 + fontSize + 10);
+
+            ctx.font = "bold " + smallFont + "px Arial";
+            ctx.fillText(dateText, 20, height - barHeight + 12 + (fontSize + 10) * 2);
+
+            const base64 = canvas.toDataURL("image/jpeg", 0.92);
+
+            screenData[i] = {
+              lat: lat,
+              lng: lng,
+              date: dateText,
+              img: base64,
+              note: screenData[i]?.note || ""
+            };
+
+            const record = {
+              id: Date.now(),
+              boxId: i,
+              lat: lat,
+              lng: lng,
+              date: dateText,
+              img: base64,
+              note: screenData[i]?.note || "",
+              savedAt: new Date().toLocaleString("ar-SA")
+            };
+            saveBoxRecord(record);
+
+            refreshStatus();
+            updateCounter();
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+
+      if(navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(
+          function(pos){
+            finishWithCoords(
+              pos.coords.latitude.toFixed(6),
+              pos.coords.longitude.toFixed(6)
+            );
+          },
+          function(){ finishWithCoords("N/A","N/A"); },
+          { enableHighAccuracy:true, timeout:10000, maximumAge:0 }
+        );
+      }else{
+        finishWithCoords("N/A","N/A");
+      }
+      input.value = "";
+    }
+
+    async function makeTitleImage(titleText){
+      const titleDiv = document.createElement("div");
+      titleDiv.style.width = "180mm";
+      titleDiv.style.padding = "6mm";
+      titleDiv.style.margin = "0 auto";
+      titleDiv.style.fontFamily = "Tahoma";
+      titleDiv.style.fontSize = "20px";
+      titleDiv.style.fontWeight = "bold";
+      titleDiv.style.textAlign = "center";
+      titleDiv.style.color = "#111";
+      titleDiv.style.background = "linear-gradient(90deg,#f3f4f6,#e5ece8)";
+      titleDiv.style.borderBottom = "2px solid #9ca3af";
+      titleDiv.textContent = titleText;
+      document.body.appendChild(titleDiv);
+
+      const canvas = await html2canvas(titleDiv,{scale:2,backgroundColor:"#fff"});
+      const img = canvas.toDataURL("image/jpeg",0.95);
+      document.body.removeChild(titleDiv);
+      return img;
+    }
+
+    async function makeNoteImage(noteText, widthMm, heightMm){
+      const noteDiv = document.createElement("div");
+      noteDiv.style.width = widthMm + "mm";
+      noteDiv.style.height = heightMm + "mm";
+      noteDiv.style.padding = "6mm";
+      noteDiv.style.boxSizing = "border-box";
+      noteDiv.style.fontFamily = "Tahoma";
+      noteDiv.style.fontSize = "14px";
+      noteDiv.style.lineHeight = "1.7";
+      noteDiv.style.whiteSpace = "pre-wrap";
+      noteDiv.style.wordBreak = "break-word";
+      noteDiv.style.background = "linear-gradient(135deg,#f1f1f1 0%,#e6efe9 55%,#dbe7e1 100%)";
+      noteDiv.textContent = noteText || "";
+      document.body.appendChild(noteDiv);
+
+      const canvas = await html2canvas(noteDiv,{scale:2,backgroundColor:"#fff"});
+      const img = canvas.toDataURL("image/jpeg",0.95);
+      document.body.removeChild(noteDiv);
+      return img;
+    }
+
+    async function exportPDF(){
+      const allRecords = getAllRecords();
+
+      if(!allRecords.length){
+        alert("لا توجد بيانات محفوظة");
+        return;
+      }
+
+      document.querySelectorAll(".add,.edit").forEach(el => el.style.display = "none");
+      hideAllPickers();
+
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF("p","mm","a4");
+
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2,"0");
+      const mm = String(now.getMonth()+1).padStart(2,"0");
+      const yyyy = now.getFullYear();
+
+      const titleText = `تقرير الصور ليوم: ${dd} / ${mm} / ${yyyy}`;
+      const titleImg = await makeTitleImage(titleText);
+
+      function drawTitle(){
+        pdf.addImage(titleImg,"JPEG",15,10,180,20);
+      }
+
+      drawTitle();
+
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const margin = 15;
+      const gap = 8;
+      const imgWidth = 85;
+      const imgHeight = 75;
+      const noteX = margin + imgWidth + gap;
+      const noteWidth = pageWidth - noteX - 20;
+      let y = 35;
+
+      for(const row of allRecords){
+        if(y + imgHeight > 280){
+          pdf.addPage();
+          drawTitle();
+          y = 35;
+        }
+
+        pdf.roundedRect(margin,y,imgWidth,imgHeight,3,3);
+        pdf.addImage(row.img,"JPEG",margin,y,imgWidth,imgHeight);
+
+        const noteImg = await makeNoteImage(row.note, noteWidth, imgHeight);
+        pdf.roundedRect(noteX,y,noteWidth,imgHeight,3,3);
+        pdf.addImage(noteImg,"JPEG",noteX,y,noteWidth,imgHeight);
+
+        y += imgHeight + 12;
+      }
+
+      pdf.save(`تقرير_الصور_${dd}-${mm}-${yyyy}.pdf`);
+      document.querySelectorAll(".add,.edit").forEach(el => el.style.display = "");
+    }
+
+    function exportExcel(){
+      const allRecords = getAllRecords();
+
+      if(!allRecords.length){
+        alert("لا توجد بيانات محفوظة");
+        return;
+      }
+
+      const rows = allRecords.map((item, idx) => ({
+        "مسلسل": idx + 1,
+        "رقم المربع": item.boxId,
+        "LAT": item.lat || "",
+        "LNG": item.lng || "",
+        "التاريخ": item.date || "",
+        "الملاحظات": item.note || "",
+        "وقت الحفظ": item.savedAt || ""
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+
+      ws['!cols'] = [
+        {wch: 10},
+        {wch: 12},
+        {wch: 15},
+        {wch: 15},
+        {wch: 25},
+        {wch: 50},
+        {wch: 25}
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "تقرير الصور");
+
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2,"0");
+      const mm = String(now.getMonth()+1).padStart(2,"0");
+      const yyyy = now.getFullYear();
+
+      XLSX.writeFile(wb, `تقرير_الصور_${dd}-${mm}-${yyyy}.xlsx`);
+    }
+
+    function clearScreen(){
+      if(!confirm("مسح الشاشة فقط؟ البيانات تبقى محفوظة")) return;
+      screenData = {};
+      refreshStatus();
+    }
+
+    function clearAllData(){
+      if(!confirm("حذف كل البيانات نهائياً؟ لا يمكن الاسترجاع")) return;
+      screenData = {};
+      localStorage.removeItem(STORAGE_KEY);
+      refreshStatus();
+      updateCounter();
+      alert("تم حذف جميع البيانات");
+    }
+
+    document.addEventListener("click", function(){
+      hideAllPickers();
+    });
+
+    updateCounter();
+    refreshStatus();
+  </script>
+</body>
+</html>
