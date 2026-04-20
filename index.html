@@ -42,6 +42,15 @@
       font-weight:bold;
     }
 
+    .storage-warning{
+      background:#dc2626;
+      color:#fff;
+      padding:6px 12px;
+      border-radius:6px;
+      font-weight:bold;
+      display:none;
+    }
+
     .page{
       width:210mm;
       min-height:297mm;
@@ -200,6 +209,7 @@
 
   <div class="topbar">
     <div class="counter" id="counter">السجلات: 0</div>
+    <div class="storage-warning" id="storageWarning">⚠️ التخزين ممتلئ!</div>
     <button onclick="exportPDF()">🖨️ PDF</button>
     <button onclick="exportExcel()">📊 Excel</button>
     <button onclick="clearScreen()">🗑️ مسح الشاشة</button>
@@ -230,12 +240,26 @@
   </div>
 
   <script>
-    const STORAGE_KEY = "hidden_report_box_history_v8";
+    const STORAGE_KEY = "hidden_report_box_history_v9";
+    const META_KEY = "hidden_report_meta_v9";
     let screenData = {};
     const boxId = 1;
 
+    // ===== التخزين الذكي: نصوص في localStorage، صور في الذاكرة فقط =====
     function getStoredData(){
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      } catch(e) {
+        return {};
+      }
+    }
+
+    function getStoredMeta(){
+      try {
+        return JSON.parse(localStorage.getItem(META_KEY) || "[]");
+      } catch(e) {
+        return [];
+      }
     }
 
     function saveBoxRecord(record){
@@ -243,8 +267,32 @@
       if(!stored[boxId]){
         stored[boxId] = [];
       }
-      stored[boxId].push(record);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+      
+      // نحفظ بيانات نصية فقط (بدون صورة) في localStorage
+      const metaRecord = {
+        id: record.id,
+        boxId: record.boxId,
+        lat: record.lat,
+        lng: record.lng,
+        date: record.date,
+        note: record.note,
+        savedAt: record.savedAt
+        // لا نخزن img هنا!
+      };
+      
+      stored[boxId].push(metaRecord);
+      
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+        document.getElementById("storageWarning").style.display = "none";
+        return true;
+      } catch(e) {
+        // localStorage ممتلئ
+        document.getElementById("storageWarning").style.display = "block";
+        document.getElementById("storageWarning").textContent = "⚠️ التخزين ممتلئ! الصور في الذاكرة فقط";
+        alert("التخزين المحلي ممتلئ. الصورة محفوظة في الذاكرة فقط (تختفي بعد إغلاق الصفحة).");
+        return false;
+      }
     }
 
     function getBoxRecords(){
@@ -253,20 +301,39 @@
     }
 
     function getAllRecords(){
-      const stored = getStoredData();
-      let all = [];
-      if(stored[boxId]){
-        all = all.concat(stored[boxId]);
+      // ندمج البيانات النصية من localStorage مع الصور من الذاكرة
+      const metaRecords = getBoxRecords();
+      const records = [];
+      
+      for(const meta of metaRecords){
+        // نبحث عن الصورة في الذاكرة (screenData) أو في session history
+        const img = findImageInMemory(meta.id);
+        records.push({
+          ...meta,
+          img: img || ""
+        });
       }
-      return all;
+      
+      return records;
+    }
+
+    // نحفظ الصور في مصفوفة منفصلة في الذاكرة
+    let imageMemory = {};
+    
+    function saveImageToMemory(id, base64Image){
+      imageMemory[id] = base64Image;
+    }
+
+    function findImageInMemory(id){
+      return imageMemory[id] || "";
     }
 
     function updateCounter(){
-      const all = getAllRecords();
-      document.getElementById("counter").textContent = "السجلات: " + all.length;
+      const metaRecords = getBoxRecords();
+      document.getElementById("counter").textContent = "السجلات: " + metaRecords.length;
 
       const badge = document.getElementById("badge1");
-      const count = getBoxRecords().length;
+      const count = metaRecords.length;
       if(count > 0){
         badge.style.display = "block";
         badge.textContent = count + " سجل";
@@ -331,7 +398,11 @@
         const stored = getStoredData();
         if(stored[i] && stored[i].length > 0){
           stored[i][stored[i].length - 1].note = noteText;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+          } catch(e) {
+            // ignore quota error error for note update
+          }
         }
       }
 
@@ -346,6 +417,7 @@
 
       const now = new Date();
       const dateText = now.toLocaleString("ar-SA");
+      const recordId = Date.now();
 
       function finishWithCoords(lat,lng){
         const reader = new FileReader();
@@ -353,7 +425,8 @@
           const img = new Image();
           img.onload = function(){
             const canvas = document.createElement("canvas");
-            const maxWidth = 1200;
+            // ===== تصغير حجم الصورة أكثر =====
+            const maxWidth = 600;  // كان 800
             let width = img.naturalWidth || img.width;
             let height = img.naturalHeight || img.height;
 
@@ -368,26 +441,29 @@
             const ctx = canvas.getContext("2d");
             ctx.drawImage(img, 0, 0, width, height);
 
-            const barHeight = Math.min(120, Math.round(height * 0.12));
+            const barHeight = Math.min(100, Math.round(height * 0.15));
             ctx.fillStyle = "rgba(0,0,0,0.88)";
             ctx.fillRect(0, height - barHeight, width, barHeight);
 
-            const fontSize = Math.max(22, Math.round(width * 0.025));
-            const smallFont = Math.max(16, Math.round(width * 0.018));
+            const fontSize = Math.max(16, Math.round(width * 0.03));
+            const smallFont = Math.max(12, Math.round(width * 0.025));
 
             ctx.fillStyle = "#fff";
             ctx.textBaseline = "top";
 
             ctx.font = "bold " + fontSize + "px Arial";
-            ctx.fillText("LAT: " + lat, 20, height - barHeight + 12);
-            ctx.fillText("LNG: " + lng, 20, height - barHeight + 12 + fontSize + 10);
+            ctx.fillText("LAT: " + lat, 15, height - barHeight + 8);
+            ctx.fillText("LNG: " + lng, 15, height - barHeight + 8 + fontSize + 6);
 
             ctx.font = "bold " + smallFont + "px Arial";
-            ctx.fillText(dateText, 20, height - barHeight + 12 + (fontSize + 10) * 2);
+            ctx.fillText(dateText, 15, height - barHeight + 8 + (fontSize + 6) * 2);
 
-            const base64 = canvas.toDataURL("image/jpeg", 0.92);
+            // ===== جودة 0.7 بدل 0.92 لتصغير الحجم =====
+            const base64 = canvas.toDataURL("image/jpeg", 0.7);
 
+            // تحديث الشاشة
             screenData[i] = {
+              id: recordId,
               lat: lat,
               lng: lng,
               date: dateText,
@@ -395,17 +471,26 @@
               note: screenData[i]?.note || ""
             };
 
+            // حفظ الصورة في الذاكرة
+            saveImageToMemory(recordId, base64);
+
+            // حفظ البيانات النصية فقط في localStorage
             const record = {
-              id: Date.now(),
+              id: recordId,
               boxId: i,
               lat: lat,
               lng: lng,
               date: dateText,
-              img: base64,
               note: screenData[i]?.note || "",
               savedAt: new Date().toLocaleString("ar-SA")
             };
-            saveBoxRecord(record);
+            
+            const saved = saveBoxRecord(record);
+            
+            // لو فشل التخزين، نحتفظ بالصورة في الذاكرة على الأقل
+            if(!saved){
+              console.log("Saved to memory only due to storage limit");
+            }
 
             refreshStatus();
             updateCounter();
@@ -518,8 +603,17 @@
           y = 35;
         }
 
-        pdf.roundedRect(margin,y,imgWidth,imgHeight,3,3);
-        pdf.addImage(row.img,"JPEG",margin,y,imgWidth,imgHeight);
+        if(row.img){
+          pdf.roundedRect(margin,y,imgWidth,imgHeight,3,3);
+          pdf.addImage(row.img,"JPEG",margin,y,imgWidth,imgHeight);
+        } else {
+          pdf.roundedRect(margin,y,imgWidth,imgHeight,3,3);
+          pdf.setFillColor(240,240,240);
+          pdf.rect(margin,y,imgWidth,imgHeight,"F");
+          pdf.setTextColor(150,150,150);
+          pdf.setFontSize(12);
+          pdf.text("الصورة غير متوفرة", margin + 20, y + imgHeight/2);
+        }
 
         const noteImg = await makeNoteImage(row.note, noteWidth, imgHeight);
         pdf.roundedRect(noteX,y,noteWidth,imgHeight,3,3);
@@ -582,9 +676,12 @@
     function clearAllData(){
       if(!confirm("حذف كل البيانات نهائياً؟ لا يمكن الاسترجاع")) return;
       screenData = {};
+      imageMemory = {};
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(META_KEY);
       refreshStatus();
       updateCounter();
+      document.getElementById("storageWarning").style.display = "none";
       alert("تم حذف جميع البيانات");
     }
 
@@ -592,8 +689,30 @@
       hideAllPickers();
     });
 
-    updateCounter();
-    refreshStatus();
+    // عند تحميل الصفحة، نحاول استرجاع البيانات
+    function init(){
+      const stored = getStoredData();
+      const metaRecords = getBoxRecords();
+      
+      // نحدث العداد
+      updateCounter();
+      
+      // لو فيه بيانات محفوظة، نعرض آخر سجل في الشاشة
+      if(metaRecords.length > 0){
+        const lastMeta = metaRecords[metaRecords.length - 1];
+        screenData[boxId] = {
+          id: lastMeta.id,
+          lat: lastMeta.lat,
+          lng: lastMeta.lng,
+          date: lastMeta.date,
+          note: lastMeta.note,
+          img: ""  // الصورة في الذاكرة فقط، تختفي بعد إغلاق الصفحة
+        };
+        refreshStatus();
+      }
+    }
+
+    init();
   </script>
 </body>
 </html>
